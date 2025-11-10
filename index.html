@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ISBN-13 Prüfer</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; background:#f7f7fb; }
+  .card { background:white; padding:22px; border-radius:10px; box-shadow:0 6px 20px rgba(20,20,40,0.08); width:360px; }
+  h1 { font-size:18px; margin:0 0 12px 0; }
+  label { font-size:13px; display:block; margin-bottom:6px; color:#333; }
+  input[type="text"]{ width:100%; padding:10px 12px; font-size:16px; border:1px solid #ddd; border-radius:6px; box-sizing:border-box; }
+  button { margin-top:12px; width:100%; padding:10px; border-radius:8px; border: none; font-weight:600; cursor:pointer; background:#0b74de; color:white; }
+  .msg { margin-top:12px; font-size:14px; min-height:38px; }
+  .ok { color: #0a7a3d; }
+  .bad { color: #b22222; }
+  .small { font-size:13px; color:#666; margin-top:8px; }
+  pre { background:#f2f4f7; padding:10px; border-radius:6px; overflow:auto; font-size:13px; }
+  .book-info { background:#f8f9fa; padding:12px; border-radius:6px; font-size:14px; }
+  .book-info h3 { margin:0 0 8px 0; font-size:15px; }
+  .book-info p { margin:4px 0; }
+  .book-cover { max-width:100px; margin-top:8px; border-radius:4px; }
+  .buy-btn { background:#ff6b35; color:white; padding:8px 16px; border:none; border-radius:6px; cursor:pointer; font-weight:600; margin-top:10px; text-decoration:none; display:inline-block; }
+  .buy-btn:hover { background:#e55a2b; }
+</style>
+</head>
+<body>
+  <div class="card" role="main">
+    <h1>ISBN-13 Prüfer</h1>
+
+    <label for="isbn">ISBN (ohne Trennstriche)</label>
+    <input id="isbn" type="text" inputmode="numeric" placeholder="z. B. 9783453311232" aria-label="ISBN ohne Trennstriche">
+
+    <button id="checkBtn">Prüfen</button>
+
+    <div class="msg" id="result" aria-live="polite"></div>
+
+    <div id="bookInfo" style="margin-top:12px;"></div>
+
+    <div class="small">
+      Die Prüfziffer wird mit der Gewichtung *1 / *3 berechnet (Standard ISBN-13).
+    </div>
+  </div>
+
+<script>
+(function(){
+  const isbnInput = document.getElementById('isbn');
+  const btn = document.getElementById('checkBtn');
+  const result = document.getElementById('result');
+  const bookInfo = document.getElementById('bookInfo');
+
+
+  function isAllDigits(s) {
+    return /^\d+$/.test(s);
+  }
+
+  
+  function calcCheckDigit(first12) {
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      const digit = Number(first12[i]);
+      
+      sum += digit * ((i % 2 === 0) ? 1 : 3);
+    }
+    return (10 - (sum % 10)) % 10;
+  }
+
+  function showMessage(text, ok) {
+    result.textContent = text;
+    result.className = 'msg ' + (ok ? 'ok' : 'bad');
+  }
+
+  
+  async function fetchBookInfo(isbn) {
+    bookInfo.innerHTML = '<div style="color:#666;">Lade Buchinformationen...</div>';
+
+    try {
+      const response = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`);
+      const data = await response.json();
+      
+      const bookKey = `ISBN:${isbn}`;
+      if (data[bookKey]) {
+        const book = data[bookKey];
+        let html = '<div class="book-info">';
+        html += `<h3>${book.title || 'Unbekannt'}</h3>`;
+        
+        if (book.authors && book.authors.length > 0) {
+          const authors = book.authors.map(a => a.name).join(', ');
+          html += `<p><strong>Autor(en):</strong> ${authors}</p>`;
+        }
+        
+        if (book.publishers && book.publishers.length > 0) {
+          html += `<p><strong>Verlag:</strong> ${book.publishers[0].name}</p>`;
+        }
+        
+        if (book.publish_date) {
+          html += `<p><strong>Erscheinungsjahr:</strong> ${book.publish_date}</p>`;
+        }
+        
+        if (book.number_of_pages) {
+          html += `<p><strong>Seitenzahl:</strong> ${book.number_of_pages}</p>`;
+        }
+        
+        if (book.cover && book.cover.medium) {
+          html += `<img src="${book.cover.medium}" alt="Buchcover" class="book-cover">`;
+        }
+        
+       
+        html += `<br><a href="https://www.amazon.de/s?k=${isbn}" target="_blank" class="buy-btn">📚 Buch kaufen</a>`;
+        
+        html += '</div>';
+        bookInfo.innerHTML = html;
+      } else {
+        bookInfo.innerHTML = '<div class="bad">Keine Buchinformationen gefunden.</div>';
+      }
+    } catch (error) {
+      bookInfo.innerHTML = '';
+      console.error('Fehler beim Abrufen:', error);
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    const raw = isbnInput.value.trim();
+
+    const isbn = raw.replace(/\s+/g, '');
+
+    if (isbn.length !== 13) {
+      showMessage(`❌ Die ISBN muss genau 13 Ziffern haben. Aktuell: ${isbn.length}`, false);
+      return;
+    }
+    if (!isAllDigits(isbn)) {
+      showMessage('❌ Die ISBN darf nur Ziffern enthalten (0–9).', false);
+      return;
+    }
+
+    const first12 = isbn.slice(0, 12);
+    const givenCheck = Number(isbn[12]);
+    const expectedCheck = calcCheckDigit(first12);
+
+    if (givenCheck === expectedCheck) {
+      showMessage(`✅ Prüfziffer stimmt. (berechnet: ${expectedCheck}) — ISBN ist gültig.`, true);
+    
+      fetchBookInfo(isbn);
+    } else {
+      showMessage(`❌ Prüfziffer falsch. Erwartet: ${expectedCheck} — Eingabe: ${givenCheck}`, false);
+      bookInfo.innerHTML = '';
+    }
+  });
+
+  
+  isbnInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      btn.click();
+    }
+  });
+})();
+</script>
+</body>
+</html>
